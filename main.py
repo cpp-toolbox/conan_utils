@@ -1,12 +1,45 @@
 import os
 import subprocess
+from typing import List
 from user_input.main import *
+from fs_utils.main import *
 
-def search_conan_package(package_name):
+def generate_conanfile_from_required_packages(base_directory: str, conanfile_path: str) -> None:
+    """
+    Recursively find all required_conan_packages.txt files in base_directory,
+    gather all listed packages, and write them to conanfile.txt.
+    """
+    packages: List[str] = get_all_required_conan_packages(base_directory)
+    write_conanfile(conanfile_path, packages)
+
+def get_all_required_conan_packages(base_directory: str) -> List[str]:
+    """
+    Recursively find all 'required_conan_packages.txt' files starting from base_directory,
+    read their contents, and return a list of all packages found.
+    """
+    all_packages: List[str] = []
+
+    package_files = find_all_instances_of_file_in_directory_recursively(
+        base_directory, "required_conan_packages.txt"
+    )
+
+    for file_path in package_files:
+        try:
+            with open(file_path, "r") as f:
+                for line in f:
+                    package = line.strip()
+                    if package and package not in all_packages:
+                        all_packages.append(package)
+        except OSError as e:
+            print(f"Could not read file {file_path}: {e}")
+
+    return all_packages
+
+def search_conan_package(package_name: str):
     print(f"Searching for package '{package_name}' in conan center...")
     subprocess.run(["conan", "search", package_name, "-r", "conancenter"])
 
-def load_existing_conanfile(conanfile_path):
+def load_existing_conanfile(conanfile_path : str):
     packages = []
     if not os.path.exists(conanfile_path):
         return packages
@@ -24,7 +57,25 @@ def load_existing_conanfile(conanfile_path):
 
     return packages
 
-def create_conanfile(root_dir):
+def write_conanfile(conanfile_path: str, packages: List[str]) -> None:
+    """Write a conanfile.txt with the given list of packages."""
+    if not packages:
+        print("No packages to write. Skipping conanfile.txt creation.")
+        return
+
+    with open(conanfile_path, "w") as f:
+        f.write("[requires]\n")
+        for package in packages:
+            f.write(f"{package}\n")
+        f.write("\n[generators]\nCMakeDeps\nCMakeToolchain\n")
+        f.write("\n[layout]\ncmake_layout\n")
+
+    print(f"\nUpdated conanfile.txt at {conanfile_path} with the following packages:")
+    for package in packages:
+        print(f" - {package}")
+
+
+def interactively_create_conanfile(root_dir):
     conanfile_path = os.path.join(root_dir, "conanfile.txt")
     packages = load_existing_conanfile(conanfile_path)
 
@@ -85,14 +136,4 @@ def create_conanfile(root_dir):
             else:
                 print("Invalid command. Please use 'search', 'add', 'remove', or 'done'.")
 
-    if packages:
-        with open(conanfile_path, "w") as f:
-            f.write("[requires]\n")
-            for package in packages:
-                f.write(f"{package}\n")
-            f.write("\n[generators]\nCMakeDeps\nCMakeToolchain\n\n[layout]\ncmake_layout")
-        print(f"\nUpdated conanfile.txt in {root_dir} with the following packages:")
-        for package in packages:
-            print(f" - {package}")
-    else:
-        print("No packages were added. Skipping conanfile.txt creation.")
+    write_conanfile(conanfile_path, packages)
